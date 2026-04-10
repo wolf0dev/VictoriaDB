@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Inventario — VictoriaDB Demo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            brand: { 50:'#f0f4ff', 100:'#dce6ff', 500:'#4f6ef7', 600:'#3b56e8', 700:'#2d43c9' }
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    body { font-family: 'Inter', system-ui, sans-serif; background: #f8fafc; }
+    .card { background:#fff; border-radius:12px; border:1px solid #e2e8f0; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+    .btn { display:inline-flex; align-items:center; gap:6px; padding:8px 16px; border-radius:8px; font-size:14px; font-weight:500; cursor:pointer; transition:all .15s; border:none; }
+    .btn-primary { background:#4f6ef7; color:#fff; }
+    .btn-primary:hover { background:#3b56e8; }
+    .btn-ghost { background:transparent; color:#64748b; border:1px solid #e2e8f0; }
+    .btn-ghost:hover { background:#f1f5f9; }
+    .btn-success { background:#10b981; color:#fff; }
+    .btn-success:hover { background:#059669; }
+    .btn-danger { background:#ef4444; color:#fff; }
+    .btn-danger:hover { background:#dc2626; }
+    input, select { width:100%; border:1px solid #e2e8f0; border-radius:8px; padding:8px 12px; font-size:14px; outline:none; transition:border .15s; }
+    input:focus, select:focus { border-color:#4f6ef7; box-shadow:0 0 0 3px rgba(79,110,247,.1); }
+    .badge { display:inline-flex; align-items:center; padding:2px 8px; border-radius:99px; font-size:11px; font-weight:600; }
+    .badge-ok { background:#dcfce7; color:#166534; }
+    .badge-low { background:#fef3c7; color:#92400e; }
+    .badge-critical { background:#fee2e2; color:#991b1b; }
+    .badge-entrada { background:#dbeafe; color:#1e40af; }
+    .badge-salida { background:#fce7f3; color:#9d174d; }
+    .badge-ajuste { background:#f3e8ff; color:#6b21a8; }
+    .progress-bar { height:6px; border-radius:99px; background:#e2e8f0; overflow:hidden; }
+    .progress-fill { height:100%; border-radius:99px; transition:width .4s; }
+    .toast { position:fixed; bottom:24px; right:24px; background:#1e293b; color:#fff; padding:12px 20px; border-radius:10px; font-size:14px; z-index:9999; animation:slideUp .2s ease; }
+    @keyframes slideUp { from{transform:translateY(10px);opacity:0} to{transform:translateY(0);opacity:1} }
+    .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.5); backdrop-filter:blur(2px); z-index:100; display:flex; align-items:center; justify-content:center; }
+    .skeleton { background: linear-gradient(90deg,#f1f5f9 25%,#e2e8f0 50%,#f1f5f9 75%); background-size:200% 100%; animation:shimmer 1.2s infinite; border-radius:6px; }
+    @keyframes shimmer { 0%{background-position:200%} 100%{background-position:-200%} }
+  </style>
+</head>
+<body>
+
+<!-- ── LOGIN ── -->
+<div id="loginScreen" class="min-h-screen flex items-center justify-center p-4">
+  <div class="card p-8 w-full max-w-sm">
+    <div class="flex items-center gap-3 mb-6">
+      <div class="w-10 h-10 rounded-xl bg-brand-500 flex items-center justify-center">
+        <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+      </div>
+      <div>
+        <h1 class="font-bold text-slate-800">Inventario</h1>
+        <p class="text-xs text-slate-400">Powered by VictoriaDB</p>
+      </div>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-medium text-slate-600 block mb-1">Usuario</label>
+        <input id="loginUser" type="text" value="admin" placeholder="admin" />
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600 block mb-1">Contraseña</label>
+        <input id="loginPass" type="password" value="admin123" placeholder="••••••••" onkeydown="if(event.key==='Enter')doLogin()" />
+      </div>
+      <p id="loginErr" class="text-red-500 text-xs hidden"></p>
+      <button class="btn btn-primary w-full justify-center" onclick="doLogin()">Iniciar sesión</button>
+    </div>
+    <p class="text-center text-xs text-slate-400 mt-4">VictoriaDB en <code>localhost:8090</code></p>
+  </div>
+</div>
+
+<!-- ── APP ── -->
+<div id="app" class="hidden min-h-screen flex flex-col">
+
+  <!-- Header -->
+  <header class="bg-white border-b border-slate-200 px-6 py-3 flex items-center justify-between sticky top-0 z-10">
+    <div class="flex items-center gap-3">
+      <div class="w-8 h-8 rounded-lg bg-brand-500 flex items-center justify-center">
+        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+      </div>
+      <span class="font-bold text-slate-800">Sistema de Inventario</span>
+      <span class="text-slate-300">·</span>
+      <span class="text-xs text-slate-400">VictoriaDB Demo</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button class="btn btn-ghost text-xs" onclick="loadAll()">⟳ Actualizar</button>
+      <button class="btn btn-ghost text-xs" onclick="doLogout()">Cerrar sesión</button>
+    </div>
+  </header>
+
+  <!-- Tabs -->
+  <div class="bg-white border-b border-slate-200 px-6 flex gap-1">
+    <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-brand-500 text-brand-600" onclick="switchTab('dashboard', this)">Dashboard</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700" onclick="switchTab('productos', this)">Productos</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700" onclick="switchTab('movimientos', this)">Movimientos</button>
+    <button class="tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-slate-500 hover:text-slate-700" onclick="switchTab('proveedores', this)">Proveedores</button>
+  </div>
+
+  <main class="flex-1 p-6 max-w-7xl mx-auto w-full">
+
+    <!-- ── TAB: DASHBOARD ── -->
+    <div id="tab-dashboard">
+      <!-- Stats -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div class="card p-4">
+          <p class="text-xs text-slate-500 font-medium">Total Productos</p>
+          <p id="statTotal" class="text-2xl font-bold text-slate-800 mt-1">—</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-xs text-slate-500 font-medium">Stock Bajo ⚠️</p>
+          <p id="statLow" class="text-2xl font-bold text-amber-500 mt-1">—</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-xs text-slate-500 font-medium">Sin Stock 🔴</p>
+          <p id="statCritical" class="text-2xl font-bold text-red-500 mt-1">—</p>
+        </div>
+        <div class="card p-4">
+          <p class="text-xs text-slate-500 font-medium">Valor Inventario</p>
+          <p id="statValue" class="text-2xl font-bold text-emerald-600 mt-1">—</p>
+        </div>
+      </div>
+
+      <div class="grid lg:grid-cols-3 gap-6">
+        <!-- Productos críticos -->
+        <div class="lg:col-span-2 card p-5">
+          <h2 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-amber-400 inline-block"></span>
+            Alertas de Stock
+          </h2>
+          <div id="alertList" class="space-y-3">
+            <div class="skeleton h-10 w-full"></div>
+            <div class="skeleton h-10 w-full"></div>
+            <div class="skeleton h-10 w-3/4"></div>
+          </div>
+        </div>
+
+        <!-- Últimos movimientos -->
+        <div class="card p-5">
+          <h2 class="font-semibold text-slate-800 mb-4 flex items-center gap-2">
+            <span class="w-2 h-2 rounded-full bg-brand-500 inline-block"></span>
+            Últimos Movimientos
+          </h2>
+          <div id="recentMov" class="space-y-2">
+            <div class="skeleton h-8 w-full"></div>
+            <div class="skeleton h-8 w-full"></div>
+            <div class="skeleton h-8 w-5/6"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Distribución por categoría -->
+      <div class="card p-5 mt-6">
+        <h2 class="font-semibold text-slate-800 mb-4">Distribución por Categoría</h2>
+        <div id="catChart" class="space-y-3"></div>
+      </div>
+    </div>
+
+    <!-- ── TAB: PRODUCTOS ── -->
+    <div id="tab-productos" class="hidden">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <input id="searchProd" type="text" placeholder="Buscar producto..." style="width:220px" oninput="filterProducts()" />
+          <select id="filterCat" style="width:160px" onchange="filterProducts()">
+            <option value="">Todas las categorías</option>
+          </select>
+          <select id="filterStock" style="width:140px" onchange="filterProducts()">
+            <option value="">Todos</option>
+            <option value="ok">Stock OK</option>
+            <option value="low">Stock bajo</option>
+            <option value="critical">Sin stock</option>
+          </select>
+        </div>
+        <button class="btn btn-primary text-xs" onclick="openMovModal()">+ Registrar Movimiento</button>
+      </div>
+
+      <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">SKU</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Producto</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Categoría</th>
+              <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500">Precio</th>
+              <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500">Stock</th>
+              <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500">Estado</th>
+              <th class="px-4 py-3"></th>
+            </tr>
+          </thead>
+          <tbody id="prodTable" class="divide-y divide-slate-100">
+            <tr><td colspan="7" class="text-center py-8 text-slate-400">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── TAB: MOVIMIENTOS ── -->
+    <div id="tab-movimientos" class="hidden">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <select id="filterTipo" style="width:150px" onchange="filterMovimientos()">
+            <option value="">Todos los tipos</option>
+            <option value="ENTRADA">Entrada</option>
+            <option value="SALIDA">Salida</option>
+            <option value="AJUSTE">Ajuste</option>
+          </select>
+        </div>
+        <button class="btn btn-primary text-xs" onclick="openMovModal()">+ Nuevo Movimiento</button>
+      </div>
+      <div class="card overflow-hidden">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 border-b border-slate-200">
+            <tr>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">ID</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Producto</th>
+              <th class="text-center px-4 py-3 text-xs font-semibold text-slate-500">Tipo</th>
+              <th class="text-right px-4 py-3 text-xs font-semibold text-slate-500">Cantidad</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Notas</th>
+              <th class="text-left px-4 py-3 text-xs font-semibold text-slate-500">Fecha</th>
+            </tr>
+          </thead>
+          <tbody id="movTable" class="divide-y divide-slate-100">
+            <tr><td colspan="6" class="text-center py-8 text-slate-400">Cargando...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── TAB: PROVEEDORES ── -->
+    <div id="tab-proveedores" class="hidden">
+      <div class="grid md:grid-cols-2 lg:grid-cols-3 gap-4" id="provCards">
+        <div class="skeleton h-32 rounded-xl"></div>
+        <div class="skeleton h-32 rounded-xl"></div>
+        <div class="skeleton h-32 rounded-xl"></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+
+<!-- ── MODAL: Registrar Movimiento ── -->
+<div id="movModal" class="modal-overlay hidden">
+  <div class="card w-full max-w-md mx-4 p-6">
+    <div class="flex items-center justify-between mb-4">
+      <h2 class="font-semibold text-slate-800">Registrar Movimiento de Stock</h2>
+      <button onclick="closeMovModal()" class="text-slate-400 hover:text-slate-600 text-lg leading-none">✕</button>
+    </div>
+    <div class="space-y-3">
+      <div>
+        <label class="text-xs font-medium text-slate-600 block mb-1">Producto</label>
+        <select id="movProd">
+          <option value="">— selecciona producto —</option>
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="text-xs font-medium text-slate-600 block mb-1">Tipo</label>
+          <select id="movTipo">
+            <option value="ENTRADA">Entrada</option>
+            <option value="SALIDA">Salida</option>
+            <option value="AJUSTE">Ajuste</option>
+          </select>
+        </div>
+        <div>
+          <label class="text-xs font-medium text-slate-600 block mb-1">Cantidad</label>
+          <input id="movCantidad" type="number" placeholder="0" min="-9999" />
+        </div>
+      </div>
+      <div>
+        <label class="text-xs font-medium text-slate-600 block mb-1">Notas</label>
+        <input id="movNotas" type="text" placeholder="Descripción del movimiento..." />
+      </div>
+      <p id="movErr" class="text-red-500 text-xs hidden"></p>
+    </div>
+    <div class="flex gap-2 mt-5">
+      <button class="btn btn-ghost flex-1 justify-center" onclick="closeMovModal()">Cancelar</button>
+      <button class="btn btn-success flex-1 justify-center" onclick="saveMovimiento()">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ───────────────────────────────────────────────────
+const API = 'http://localhost:8090/api/v1';
+let token = localStorage.getItem('inv_token') || '';
+let productos = [], categorias = [], movimientos = [], proveedores = [];
+let catMap = {}, prodMap = {};
+
+// ── Auth ────────────────────────────────────────────────────
+async function doLogin() {
+  const u = document.getElementById('loginUser').value.trim();
+  const p = document.getElementById('loginPass').value;
+  const err = document.getElementById('loginErr');
+  err.classList.add('hidden');
+  try {
+    const r = await fetch('http://localhost:8090/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: u, password: p })
+    });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || 'Credenciales incorrectas');
+    token = j.token;
+    localStorage.setItem('inv_token', token);
+    showApp();
+  } catch(e) {
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+  }
+}
+
+function doLogout() {
+  localStorage.removeItem('inv_token');
+  token = '';
+  document.getElementById('app').classList.add('hidden');
+  document.getElementById('loginScreen').classList.remove('hidden');
+}
+
+// ── API ─────────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const r = await fetch(API + path, {
+    ...opts,
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  });
+  if (r.status === 401) { doLogout(); throw new Error('Sesión expirada'); }
+  const j = await r.json();
+  if (!j.success) throw new Error(j.error || 'Error');
+  return j.data;
+}
+
+async function getAll(table) {
+  const data = await api(`/collections/${table}/records?perPage=500`);
+  return data.records || data || [];
+}
+
+// ── Bootstrap ───────────────────────────────────────────────
+function showApp() {
+  document.getElementById('loginScreen').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  loadAll();
+}
+
+async function loadAll() {
+  try {
+    [productos, categorias, movimientos, proveedores] = await Promise.all([
+      getAll('productos'), getAll('categorias'),
+      getAll('movimientos_stock'), getAll('proveedores')
+    ]);
+
+    catMap = {};
+    categorias.forEach(c => catMap[c.id] = c.nombre);
+    prodMap = {};
+    productos.forEach(p => prodMap[p.id] = p.nombre);
+
+    renderDashboard();
+    renderProductos();
+    renderMovimientos();
+    renderProveedores();
+    populateMovModal();
+    populateCatFilter();
+  } catch(e) {
+    showToast('Error al cargar datos: ' + e.message, 'error');
+  }
+}
+
+// ── Dashboard ────────────────────────────────────────────────
+function renderDashboard() {
+  const low = productos.filter(p => p.stock_actual > 0 && p.stock_actual <= p.stock_minimo);
+  const critical = productos.filter(p => p.stock_actual <= 0);
+  const totalVal = productos.reduce((s, p) => s + (p.precio * p.stock_actual), 0);
+
+  document.getElementById('statTotal').textContent = productos.length;
+  document.getElementById('statLow').textContent = low.length;
+  document.getElementById('statCritical').textContent = critical.length;
+  document.getElementById('statValue').textContent = '$' + totalVal.toLocaleString('es-MX', { maximumFractionDigits: 0 });
+
+  // Alertas
+  const alerts = productos
+    .filter(p => p.stock_actual <= p.stock_minimo)
+    .sort((a, b) => (a.stock_actual / a.stock_minimo) - (b.stock_actual / b.stock_minimo));
+  const alertList = document.getElementById('alertList');
+  if (!alerts.length) {
+    alertList.innerHTML = '<p class="text-sm text-emerald-600 font-medium">✓ Todo el inventario en niveles saludables</p>';
+  } else {
+    alertList.innerHTML = alerts.map(p => {
+      const pct = Math.max(0, Math.min(100, (p.stock_actual / p.stock_minimo) * 100));
+      const color = p.stock_actual <= 0 ? '#ef4444' : '#f59e0b';
+      return `
+        <div class="flex items-center gap-3">
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center justify-between mb-1">
+              <span class="text-sm font-medium text-slate-700 truncate">${p.nombre}</span>
+              <span class="text-xs font-mono ml-2 ${p.stock_actual <= 0 ? 'text-red-500 font-bold' : 'text-amber-600'}">${p.stock_actual}/${p.stock_minimo}</span>
+            </div>
+            <div class="progress-bar"><div class="progress-fill" style="width:${pct}%;background:${color}"></div></div>
+          </div>
+          <button class="btn btn-primary text-xs py-1 px-2 whitespace-nowrap" onclick="quickEntry(${p.id}, '${p.nombre.replace(/'/g,"\\'")}')">+ Entrada</button>
+        </div>`;
+    }).join('');
+  }
+
+  // Últimos movimientos
+  const last = [...movimientos].reverse().slice(0, 8);
+  document.getElementById('recentMov').innerHTML = last.length
+    ? last.map(m => `
+      <div class="flex items-center gap-2 text-xs py-1.5 border-b border-slate-100 last:border-0">
+        <span class="badge badge-${m.tipo.toLowerCase()} shrink-0">${m.tipo}</span>
+        <span class="flex-1 truncate text-slate-600">${prodMap[m.producto_id] || '?'}</span>
+        <span class="font-mono font-semibold ${m.cantidad < 0 ? 'text-red-500' : 'text-slate-700'}">${m.cantidad > 0 ? '+' : ''}${m.cantidad}</span>
+      </div>`).join('')
+    : '<p class="text-xs text-slate-400">Sin movimientos</p>';
+
+  // Distribución por categoría
+  const byCat = {};
+  productos.forEach(p => {
+    const cat = catMap[p.categoria_id] || 'Sin categoría';
+    byCat[cat] = (byCat[cat] || 0) + 1;
+  });
+  const maxCat = Math.max(...Object.values(byCat));
+  const colors = ['#4f6ef7','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
+  document.getElementById('catChart').innerHTML = Object.entries(byCat).map(([name, count], i) => `
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-slate-600 w-40 truncate">${name}</span>
+      <div class="flex-1 progress-bar"><div class="progress-fill" style="width:${(count/maxCat)*100}%;background:${colors[i%colors.length]}"></div></div>
+      <span class="text-sm font-semibold text-slate-700 w-6 text-right">${count}</span>
+    </div>`).join('');
+}
+
+// ── Productos ────────────────────────────────────────────────
+function populateCatFilter() {
+  const sel = document.getElementById('filterCat');
+  sel.innerHTML = '<option value="">Todas las categorías</option>' +
+    categorias.map(c => `<option value="${c.id}">${c.nombre}</option>`).join('');
+}
+
+function filterProducts() {
+  const q = document.getElementById('searchProd').value.toLowerCase();
+  const catId = document.getElementById('filterCat').value;
+  const stock = document.getElementById('filterStock').value;
+  const filtered = productos.filter(p => {
+    const matchQ = !q || p.nombre.toLowerCase().includes(q) || p.sku.toLowerCase().includes(q);
+    const matchCat = !catId || String(p.categoria_id) === catId;
+    const matchStock = !stock ||
+      (stock === 'ok' && p.stock_actual > p.stock_minimo) ||
+      (stock === 'low' && p.stock_actual > 0 && p.stock_actual <= p.stock_minimo) ||
+      (stock === 'critical' && p.stock_actual <= 0);
+    return matchQ && matchCat && matchStock;
+  });
+  renderProdTable(filtered);
+}
+
+function renderProductos() { renderProdTable(productos); }
+
+function renderProdTable(list) {
+  const tb = document.getElementById('prodTable');
+  if (!list.length) {
+    tb.innerHTML = '<tr><td colspan="7" class="text-center py-8 text-slate-400">Sin resultados</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(p => {
+    const pct = p.stock_minimo > 0 ? Math.min(100, (p.stock_actual / p.stock_minimo) * 100) : 100;
+    const st = p.stock_actual <= 0 ? 'critical' : p.stock_actual <= p.stock_minimo ? 'low' : 'ok';
+    const stLabel = { ok: 'Normal', low: 'Bajo', critical: 'Crítico' }[st];
+    const barColor = { ok: '#10b981', low: '#f59e0b', critical: '#ef4444' }[st];
+    return `<tr class="hover:bg-slate-50 transition-colors">
+      <td class="px-4 py-3 font-mono text-xs text-slate-500">${p.sku}</td>
+      <td class="px-4 py-3 font-medium text-slate-800">${p.nombre}<br><span class="text-xs text-slate-400 font-normal">${p.descripcion || ''}</span></td>
+      <td class="px-4 py-3 text-xs text-slate-500">${catMap[p.categoria_id] || '—'}</td>
+      <td class="px-4 py-3 text-right font-mono text-slate-700">$${(p.precio||0).toLocaleString('es-MX')}</td>
+      <td class="px-4 py-3 text-center">
+        <div class="flex items-center gap-2 justify-center">
+          <div class="progress-bar w-16"><div class="progress-fill" style="width:${pct}%;background:${barColor}"></div></div>
+          <span class="text-xs font-mono text-slate-700 w-8">${p.stock_actual}</span>
+        </div>
+      </td>
+      <td class="px-4 py-3 text-center"><span class="badge badge-${st}">${stLabel}</span></td>
+      <td class="px-4 py-3 text-right">
+        <button class="text-xs text-brand-500 hover:text-brand-700 font-medium" onclick="quickEntry(${p.id}, '${p.nombre.replace(/'/g,"\\'")}')">+ Mov</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+// ── Movimientos ──────────────────────────────────────────────
+function filterMovimientos() {
+  const tipo = document.getElementById('filterTipo').value;
+  const filtered = tipo ? movimientos.filter(m => m.tipo === tipo) : movimientos;
+  renderMovTable(filtered);
+}
+
+function renderMovimientos() { renderMovTable(movimientos); }
+
+function renderMovTable(list) {
+  const tb = document.getElementById('movTable');
+  const rows = [...list].reverse();
+  if (!rows.length) {
+    tb.innerHTML = '<tr><td colspan="6" class="text-center py-8 text-slate-400">Sin movimientos</td></tr>';
+    return;
+  }
+  tb.innerHTML = rows.map(m => `
+    <tr class="hover:bg-slate-50 transition-colors">
+      <td class="px-4 py-3 text-xs font-mono text-slate-400">#${m.id}</td>
+      <td class="px-4 py-3 font-medium text-slate-700">${prodMap[m.producto_id] || 'ID '+m.producto_id}</td>
+      <td class="px-4 py-3 text-center"><span class="badge badge-${m.tipo.toLowerCase()}">${m.tipo}</span></td>
+      <td class="px-4 py-3 text-right font-mono font-semibold ${m.cantidad < 0 ? 'text-red-500' : 'text-slate-800'}">${m.cantidad > 0 ? '+' : ''}${m.cantidad}</td>
+      <td class="px-4 py-3 text-xs text-slate-500">${m.notas || '—'}</td>
+      <td class="px-4 py-3 text-xs text-slate-400">${m.fecha ? new Date(m.fecha).toLocaleString('es-MX') : '—'}</td>
+    </tr>`).join('');
+}
+
+// ── Proveedores ──────────────────────────────────────────────
+function renderProveedores() {
+  const prodByProv = {};
+  productos.forEach(p => {
+    if (p.proveedor_id) prodByProv[p.proveedor_id] = (prodByProv[p.proveedor_id] || 0) + 1;
+  });
+  document.getElementById('provCards').innerHTML = proveedores.map(p => `
+    <div class="card p-5 hover:shadow-md transition-shadow">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="w-10 h-10 rounded-xl bg-brand-50 flex items-center justify-center text-brand-600 font-bold text-sm">
+          ${p.nombre.charAt(0)}
+        </div>
+        <div class="min-w-0 flex-1">
+          <p class="font-semibold text-slate-800 truncate">${p.nombre}</p>
+          <p class="text-xs text-slate-400">${prodByProv[p.id] || 0} productos</p>
+        </div>
+        <span class="badge ${p.activo ? 'badge-ok' : 'badge-critical'}">${p.activo ? 'Activo' : 'Inactivo'}</span>
+      </div>
+      ${p.email ? `<p class="text-xs text-slate-500 truncate">✉ ${p.email}</p>` : ''}
+      ${p.telefono ? `<p class="text-xs text-slate-500 mt-1">📞 ${p.telefono}</p>` : ''}
+    </div>`).join('');
+}
+
+// ── Modal Movimiento ─────────────────────────────────────────
+function populateMovModal() {
+  document.getElementById('movProd').innerHTML =
+    '<option value="">— selecciona producto —</option>' +
+    productos.map(p => `<option value="${p.id}">[${p.sku}] ${p.nombre} (stock: ${p.stock_actual})</option>`).join('');
+}
+
+function openMovModal(prodId, prodNombre) {
+  document.getElementById('movModal').classList.remove('hidden');
+  document.getElementById('movErr').classList.add('hidden');
+  if (prodId) {
+    document.getElementById('movProd').value = prodId;
+  }
+  document.getElementById('movCantidad').value = '';
+  document.getElementById('movNotas').value = '';
+}
+
+function closeMovModal() {
+  document.getElementById('movModal').classList.add('hidden');
+}
+
+function quickEntry(prodId, prodNombre) {
+  openMovModal(prodId, prodNombre);
+  document.getElementById('movTipo').value = 'ENTRADA';
+}
+
+async function saveMovimiento() {
+  const prodId = parseInt(document.getElementById('movProd').value);
+  const tipo = document.getElementById('movTipo').value;
+  const cantidad = parseInt(document.getElementById('movCantidad').value);
+  const notas = document.getElementById('movNotas').value.trim();
+  const err = document.getElementById('movErr');
+
+  if (!prodId) { err.textContent = 'Selecciona un producto'; err.classList.remove('hidden'); return; }
+  if (!cantidad || isNaN(cantidad)) { err.textContent = 'Ingresa una cantidad válida'; err.classList.remove('hidden'); return; }
+
+  err.classList.add('hidden');
+  try {
+    await api('/collections/movimientos_stock/records', {
+      method: 'POST',
+      body: JSON.stringify({ producto_id: prodId, tipo, cantidad, notas })
+    });
+
+    // Update local stock
+    const prod = productos.find(p => p.id === prodId);
+    if (prod) prod.stock_actual = Math.max(0, prod.stock_actual + cantidad);
+
+    closeMovModal();
+    showToast(`Movimiento ${tipo.toLowerCase()} registrado`, 'success');
+    await loadAll();
+  } catch(e) {
+    err.textContent = e.message;
+    err.classList.remove('hidden');
+  }
+}
+
+// ── Tabs ─────────────────────────────────────────────────────
+function switchTab(name, btn) {
+  ['dashboard','productos','movimientos','proveedores'].forEach(t => {
+    document.getElementById('tab-'+t).classList.add('hidden');
+  });
+  document.querySelectorAll('.tab-btn').forEach(b => {
+    b.classList.remove('border-brand-500','text-brand-600');
+    b.classList.add('border-transparent','text-slate-500');
+  });
+  document.getElementById('tab-'+name).classList.remove('hidden');
+  btn.classList.add('border-brand-500','text-brand-600');
+  btn.classList.remove('border-transparent','text-slate-500');
+}
+
+// ── Toast ─────────────────────────────────────────────────────
+function showToast(msg, type = 'info') {
+  const t = document.createElement('div');
+  t.className = 'toast';
+  t.style.background = type === 'error' ? '#ef4444' : type === 'success' ? '#10b981' : '#1e293b';
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ── Init ──────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  if (token) {
+    showApp();
+  }
+});
+</script>
+</body>
+</html>
